@@ -2,6 +2,10 @@
 
 秋招作战台：面向个人求职者的本地桌面流程管理工具。
 
+安装包 MSI：src-tauri\target\release\bundle\msi\WORREMEMBER_0.1.0_x64_zh-CN.msi
+安装包 EXE：src-tauri\target\release\bundle\nsis\WORREMEMBER_0.1.0_x64-setup.exe
+直接运行文件：src-tauri\target\release\worremember.exe
+
 ## 当前版本
 
 V0.1 核心看板已经搭建：
