@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "WORREMEMBER desktop capabilities",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
