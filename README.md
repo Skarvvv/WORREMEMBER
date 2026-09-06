@@ -41,6 +41,8 @@ npm run tauri dev
 npm run tauri build
 ```
 
-应用数据库会保存到 Windows 应用数据目录下的 `WORREMEMBER` 数据目录中，并使用 SQLite WAL 模式降低异常退出时的数据风险。
+桌面版应用数据库会保存到可执行文件同级的 `data` 目录中：`data\data.sqlite`，备份保存在 `data\backups`，并使用 SQLite WAL 模式降低异常退出时的数据风险。安装目录必须允许当前用户写入；如果安装到 `Program Files`，请使用管理员权限安装，或选择当前用户可写的目录。
+
+浏览器预览模式仍使用浏览器的 `localStorage`，不会写入桌面版的 SQLite 文件。
 
 当前开发环境尚未提供 Node.js/npm 和 Rust/Cargo，因此尚未执行依赖安装、前端构建或 Windows 安装包构建。

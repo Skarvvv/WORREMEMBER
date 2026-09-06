@@ -1,8 +1,16 @@
-import type { JobPosition, ProcessEvent } from './types'
+import { DEFAULT_FLOW_TEMPLATES, type CalendarEvent, type FlowTemplate, type JobPosition, type Note, type ProcessEvent, type Task } from './types'
 import { invoke } from '@tauri-apps/api/core'
 
 const JOBS_KEY = 'worremember.jobs.v1'
 const EVENTS_KEY = 'worremember.process-events.v1'
+const FLOWS_KEY = 'worremember.flow-templates.v1'
+const TASKS_KEY = 'worremember.tasks.v1'
+const CALENDAR_KEY = 'worremember.calendar-events.v1'
+const NOTES_KEY = 'worremember.notes.v1'
+
+function isDesktopRuntime(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
 
 const seedJobs: JobPosition[] = [
   {
@@ -24,6 +32,18 @@ const seedJobs: JobPosition[] = [
     jobUrl: '', processUrl: '', deadlineAt: '2026-09-12', nextAction: '补充项目经历',
     jdContent: '参与用户访谈、问卷设计与体验分析。', createdAt: '2026-09-03', updatedAt: '2026-09-03',
   },
+  {
+    id: 'seed-4', company: '星河数据', title: '数据分析师', direction: '数据', city: '深圳',
+    employmentType: '校招', source: '官网', status: '已投递', priority: '中',
+    jobUrl: 'https://example.com/job/4', processUrl: '', appliedAt: '2026-09-04',
+    nextAction: '关注笔试通知', jdContent: '', createdAt: '2026-09-04', updatedAt: '2026-09-05',
+  },
+  {
+    id: 'seed-5', company: '蓝岸科技', title: '后端开发工程师', direction: '开发', city: '上海',
+    employmentType: '全职', source: '内推', status: '已投递', priority: '高',
+    jobUrl: 'https://example.com/job/5', processUrl: '', appliedAt: '2026-09-05',
+    nextAction: '准备技术面', jdContent: '', createdAt: '2026-09-05', updatedAt: '2026-09-05',
+  },
 ]
 
 function read<T>(key: string, fallback: T): T {
@@ -39,8 +59,18 @@ export function loadJobs(): JobPosition[] {
   return read(JOBS_KEY, seedJobs)
 }
 
+export function loadDeletedJobs(): JobPosition[] {
+  return read(`${JOBS_KEY}.trash`, [])
+}
+
 export function saveJobs(jobs: JobPosition[]) {
+  if (isDesktopRuntime()) return
   localStorage.setItem(JOBS_KEY, JSON.stringify(jobs))
+}
+
+export function saveDeletedJobs(jobs: JobPosition[]) {
+  if (isDesktopRuntime()) return
+  localStorage.setItem(`${JOBS_KEY}.trash`, JSON.stringify(jobs))
 }
 
 export function loadProcessEvents(): ProcessEvent[] {
@@ -48,13 +78,52 @@ export function loadProcessEvents(): ProcessEvent[] {
 }
 
 export function saveProcessEvents(events: ProcessEvent[]) {
+  if (isDesktopRuntime()) return
   localStorage.setItem(EVENTS_KEY, JSON.stringify(events))
+}
+
+export function loadFlowTemplates(): FlowTemplate[] {
+  return read(FLOWS_KEY, DEFAULT_FLOW_TEMPLATES)
+}
+
+export function saveFlowTemplates(flows: FlowTemplate[]) {
+  if (isDesktopRuntime()) return
+  localStorage.setItem(FLOWS_KEY, JSON.stringify(flows))
+}
+
+export function loadTasks(): Task[] { return read(TASKS_KEY, []) }
+export function saveTasks(tasks: Task[]) { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks)) }
+export function loadCalendarEvents(): CalendarEvent[] { return read(CALENDAR_KEY, []) }
+export function saveCalendarEvents(events: CalendarEvent[]) { localStorage.setItem(CALENDAR_KEY, JSON.stringify(events)) }
+export function loadNotes(): Note[] { return read(NOTES_KEY, []) }
+export function saveNotes(notes: Note[]) { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)) }
+
+export function downloadFile(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+export async function backupDesktopDatabase(): Promise<string | null> {
+  try { return await invoke<string>('backup_database') } catch { return null }
 }
 
 export async function loadDesktopJobs(): Promise<JobPosition[] | null> {
   try {
     const jobs = await invoke<JobPosition[]>('list_jobs')
     return jobs
+  } catch {
+    return null
+  }
+}
+
+export async function loadDesktopDeletedJobs(): Promise<JobPosition[] | null> {
+  try {
+    return await invoke<JobPosition[]>('list_deleted_jobs')
   } catch {
     return null
   }
@@ -82,9 +151,19 @@ export async function persistDesktopJob(job: JobPosition): Promise<void> {
         jd_content: job.jdContent,
         created_at: job.createdAt,
         updated_at: job.updatedAt,
+        deleted_at: job.deletedAt ?? null,
+        flow_id: job.flowId ?? 'flow-general',
       },
     })
   } catch {
     // Browser preview keeps using localStorage until the Tauri runtime is available.
   }
+}
+
+export async function deleteDesktopJob(jobId: string): Promise<void> {
+  try { await invoke('delete_job', { jobId }) } catch { /* Browser preview uses localStorage. */ }
+}
+
+export async function restoreDesktopJob(jobId: string): Promise<void> {
+  try { await invoke('restore_job', { jobId }) } catch { /* Browser preview uses localStorage. */ }
 }
