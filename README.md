@@ -24,8 +24,10 @@ V2.0 已完成核心看板、个人求职工作台和本地数据管理能力：
 - 岗位回收站：删除确认、恢复岗位
 - JSON 全量导入导出、CSV 岗位导出和 SQLite 数据库备份
 - JD 内容搜索与岗位流程类别持久化
+- 看板按流程类别切换，并支持优先级、方向、阶段筛选和更新时间/截止日期排序
+- 岗位标签：新增、编辑、卡片展示、搜索和 SQLite 持久化
 
-当前暂未实现：Windows 系统通知、月/周日历视图、高级筛选、附件管理和云端同步。
+当前暂未实现：Windows 系统通知、月/周日历视图、附件管理和云端同步。
 
 ## 本地开发环境
 
@@ -50,8 +52,16 @@ npm run tauri build
 
 正式构建会自动先执行 `npm run build`，生成最新的前端 `dist` 文件，再打包 Tauri 桌面程序。
 
+PowerShell 如果将 `npm` 解析为受策略限制的 `npm.ps1`，请使用 `npm.cmd`：
+
+```powershell
+npm.cmd run tauri build
+```
+
+Tauri 生产资源使用相对路径，Vite 配置中的 `base: './'` 不要删除，否则桌面 WebView 可能无法加载前端资源。Vite 已排除 `src-tauri` 和 `node_modules` 的文件监视，避免 Windows 下监视构建二进制时触发 `EBUSY`。
+
 桌面版应用数据库会保存到可执行文件同级的 `data` 目录中：`data\data.sqlite`，备份保存在 `data\backups`，并使用 SQLite WAL 模式降低异常退出时的数据风险。安装目录必须允许当前用户写入；如果安装到 `Program Files`，请使用管理员权限安装，或选择当前用户可写的目录。
 
 浏览器预览模式仍使用浏览器的 `localStorage`，不会写入桌面版的 SQLite 文件。
 
-当前版本已完成前端构建、Rust 检查和 Windows 安装包构建。构建产物位于 `src-tauri\target\release\bundle`。
+当前版本已完成前端构建、Rust 检查和 Windows 安装包构建。构建产物位于 `src-tauri\target\release\bundle`。桌面端会将 SQLite 返回的下划线字段转换为前端使用的驼峰字段，兼容已有数据库结构。
