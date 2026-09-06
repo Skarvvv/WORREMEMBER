@@ -7,9 +7,27 @@ const FLOWS_KEY = 'worremember.flow-templates.v1'
 const TASKS_KEY = 'worremember.tasks.v1'
 const CALENDAR_KEY = 'worremember.calendar-events.v1'
 const NOTES_KEY = 'worremember.notes.v1'
+const today = new Date().toISOString().slice(0, 10)
 
 function isDesktopRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+function mapDesktopJob(record: Record<string, unknown>): JobPosition {
+  return {
+    id: String(record.id || ''), company: String(record.company || ''), title: String(record.title || ''),
+    direction: String(record.direction || ''), city: String(record.city || ''),
+    employmentType: String(record.employment_type ?? record.employmentType ?? ''), source: String(record.source || ''),
+    status: String(record.status || '了解中'), priority: record.priority as JobPosition['priority'] || '中',
+    jobUrl: String(record.job_url ?? record.jobUrl ?? ''), processUrl: String(record.process_url ?? record.processUrl ?? ''),
+    appliedAt: String(record.applied_at ?? record.appliedAt ?? '') || undefined,
+    deadlineAt: String(record.deadline_at ?? record.deadlineAt ?? '') || undefined,
+    nextAction: String(record.next_action ?? record.nextAction ?? ''),
+    nextActionDeadline: String(record.next_action_deadline ?? record.nextActionDeadline ?? '') || undefined,
+    jdContent: String(record.jd_content ?? record.jdContent ?? ''), createdAt: String(record.created_at ?? record.createdAt ?? today),
+    updatedAt: String(record.updated_at ?? record.updatedAt ?? today), deletedAt: String(record.deleted_at ?? record.deletedAt ?? '') || undefined,
+    flowId: String(record.flow_id ?? record.flowId ?? 'flow-general'), tags: Array.isArray(record.tags) ? record.tags as string[] : [],
+  }
 }
 
 const seedJobs: JobPosition[] = [
@@ -114,8 +132,8 @@ export async function backupDesktopDatabase(): Promise<string | null> {
 
 export async function loadDesktopJobs(): Promise<JobPosition[] | null> {
   try {
-    const jobs = await invoke<JobPosition[]>('list_jobs')
-    return jobs
+    const jobs = await invoke<Record<string, unknown>[]>('list_jobs')
+    return jobs.map(mapDesktopJob)
   } catch {
     return null
   }
@@ -123,7 +141,8 @@ export async function loadDesktopJobs(): Promise<JobPosition[] | null> {
 
 export async function loadDesktopDeletedJobs(): Promise<JobPosition[] | null> {
   try {
-    return await invoke<JobPosition[]>('list_deleted_jobs')
+    const jobs = await invoke<Record<string, unknown>[]>('list_deleted_jobs')
+    return jobs.map(mapDesktopJob)
   } catch {
     return null
   }

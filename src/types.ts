@@ -28,6 +28,7 @@ export interface JobPosition {
   updatedAt: string
   deletedAt?: string
   flowId?: string
+  tags?: string[]
 }
 
 export interface ProcessEvent {

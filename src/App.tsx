@@ -7,10 +7,11 @@ import { getStatusMeta, JobStatus, Priority, STATUSES, type CalendarEvent, type 
 const today = new Date().toISOString().slice(0, 10)
 
 function normalizeJobFlow(job: JobPosition): JobPosition {
-  if (job.flowId) return job
-  if (job.direction.includes('产品')) return { ...job, flowId: 'flow-product' }
-  if (['开发', '前端', '后端', '算法', '研发', '测试'].some((keyword) => job.direction.includes(keyword))) return { ...job, flowId: 'flow-engineering' }
-  return { ...job, flowId: 'flow-general' }
+  const tags = job.tags?.length ? job.tags : job.direction ? [job.direction] : []
+  if (job.flowId) return { ...job, tags }
+  if (job.direction.includes('产品')) return { ...job, flowId: 'flow-product', tags }
+  if (['开发', '前端', '后端', '算法', '研发', '测试'].some((keyword) => job.direction.includes(keyword))) return { ...job, flowId: 'flow-engineering', tags }
+  return { ...job, flowId: 'flow-general', tags }
 }
 
 function makeJob(form: HTMLFormElement): JobPosition {
@@ -21,6 +22,7 @@ function makeJob(form: HTMLFormElement): JobPosition {
     employmentType: String(data.get('employmentType') || '校招'), source: String(data.get('source') || ''),
     status: '了解中', priority: data.get('priority') as Priority || '中', jobUrl: String(data.get('jobUrl') || ''),
     processUrl: String(data.get('processUrl') || ''), nextAction: String(data.get('nextAction') || ''),
+    tags: String(data.get('tags') || '').split(/[,，]/).map((tag) => tag.trim()).filter(Boolean),
     deadlineAt: String(data.get('deadlineAt') || '') || undefined, nextActionDeadline: String(data.get('nextActionDeadline') || '') || undefined,
     jdContent: '', createdAt: today, updatedAt: today,
   }
@@ -39,6 +41,11 @@ export function App() {
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+  const [priorityFilter, setPriorityFilter] = useState<Priority | '全部'>('全部')
+  const [directionFilter, setDirectionFilter] = useState('全部')
+  const [statusFilter, setStatusFilter] = useState('全部')
+  const [sortBy, setSortBy] = useState<'updated' | 'deadline'>('updated')
   const [draggedId, setDraggedId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -67,13 +74,19 @@ export function App() {
   }, [jobs, deletedJobs])
 
   const selectedJob = jobs.find((job) => job.id === selectedId) ?? null
-  const filteredJobs = useMemo(() => jobs.filter((job) => [job.company, job.title, job.direction, job.city, job.nextAction, job.jdContent].join(' ').toLowerCase().includes(query.toLowerCase())), [jobs, query])
+  const filteredJobs = useMemo(() => jobs.filter((job) => [job.company, job.title, job.direction, job.city, job.nextAction, job.jdContent, ...(job.tags || [])].join(' ').toLowerCase().includes(query.toLowerCase())), [jobs, query])
   const urgentJobs = jobs.filter((job) => job.nextActionDeadline && job.nextActionDeadline <= today && job.status !== '已结束' && job.status !== '已拒绝')
   const activeJobs = jobs.filter((job) => !['已结束', '已拒绝'].includes(job.status))
   const pendingTasks = tasks.filter((task) => !task.completedAt)
   const activeFlow = flowTemplates.find((flow) => flow.id === activeFlowId) ?? flowTemplates[0]
   const selectedFlow = flowTemplates.find((flow) => flow.id === (selectedJob?.flowId || 'flow-general')) ?? activeFlow
-  const flowJobs = filteredJobs.filter((job) => (job.flowId || 'flow-general') === activeFlow?.id)
+  const directions = [...new Set(jobs.map((job) => job.direction).filter(Boolean))]
+  const flowJobs = filteredJobs
+    .filter((job) => (job.flowId || 'flow-general') === activeFlow?.id)
+    .filter((job) => priorityFilter === '全部' || job.priority === priorityFilter)
+    .filter((job) => directionFilter === '全部' || job.direction === directionFilter)
+    .filter((job) => statusFilter === '全部' || job.status === statusFilter)
+    .sort((a, b) => sortBy === 'deadline' ? (a.deadlineAt || '9999-99-99').localeCompare(b.deadlineAt || '9999-99-99') : b.updatedAt.localeCompare(a.updatedAt))
 
   function updateJobs(next: JobPosition[]) {
     setJobs(next)
@@ -187,11 +200,13 @@ export function App() {
         <div className="sidebar-footer"><div className="sync-dot" /><span>本地数据已保存</span></div>
       </aside>
       <main className="main-content">
-        <header className="topbar"><div><div className="breadcrumb">秋招作战台 <span>/</span> {activeNav}</div><h1>{activeNav === '看板' ? '投递看板' : activeNav}</h1></div><div className="top-actions"><div className="search-box"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索公司、岗位或行动" /><kbd>⌘ K</kbd></div><button className="icon-button" title="筛选"><SlidersHorizontal size={18} /></button><button className="primary-button" onClick={() => setShowAdd(true)}><Plus size={18} /> 新增岗位</button></div></header>
+        <header className="topbar"><div><div className="breadcrumb">秋招作战台 <span>/</span> {activeNav}</div><h1>{activeNav === '看板' ? '投递看板' : activeNav}</h1></div><div className="top-actions"><div className="search-box"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索公司、岗位或行动" /><kbd>⌘ K</kbd></div><button className={showFilters ? 'icon-button active' : 'icon-button'} title="筛选" onClick={() => setShowFilters((visible) => !visible)}><SlidersHorizontal size={18} /></button><button className="primary-button" onClick={() => setShowAdd(true)}><Plus size={18} /> 新增岗位</button></div></header>
+          {showFilters && <FilterPanel priority={priorityFilter} direction={directionFilter} status={statusFilter} sortBy={sortBy} directions={directions} statuses={activeFlow?.statuses || STATUSES} onPriorityChange={setPriorityFilter} onDirectionChange={setDirectionFilter} onStatusChange={setStatusFilter} onSortChange={setSortBy} />}
         <section className="summary-row"><div className="summary-intro"><Sparkles size={18} /><span>今天是 {today.replaceAll('-', '.')}，继续保持推进。</span></div><div className="summary-metrics"><span><b>{activeJobs.length}</b> 个进行中</span><span className={urgentJobs.length ? 'metric-alert' : ''}><b>{urgentJobs.length}</b> 个待处理</span><span><b>{jobs.filter((job) => job.status === 'Offer').length}</b> 个 Offer</span></div></section>
         {activeNav === '总览' ? <OverviewView jobs={jobs} tasks={tasks} events={calendarEvents} notes={notes} onCompleteTask={(task) => updateTasks(tasks.map((item) => item.id === task.id ? { ...item, completedAt: today, updatedAt: today } : item))} /> : activeNav === '日程' ? <CalendarView events={calendarEvents} jobs={jobs} onChange={updateCalendarEvents} /> : activeNav === '备忘录' ? <NotesView notes={notes} jobs={jobs} onChange={updateNotes} /> : activeNav === '回收站' ? <TrashView jobs={deletedJobs} onRestore={restoreJob} /> : activeNav === '设置' ? <FlowSettings flows={flowTemplates} onChange={updateFlowTemplates} onCreate={createFlow} onDelete={deleteFlow} onAssign={assignJobFlow} onImport={importData} jobs={jobs} deletedJobs={deletedJobs} tasks={tasks} events={calendarEvents} notes={notes} /> : <><div className="board-toolbar"><div className="view-tabs">{flowTemplates.map((flow) => <button key={flow.id} className={activeFlow?.id === flow.id ? 'view-tab active' : 'view-tab'} onClick={() => setActiveFlowId(flow.id)}>{flow.name} <span>{jobs.filter((job) => (job.flowId || 'flow-general') === flow.id).length}</span></button>)}<button className="view-tab">高优先级 <span>{flowJobs.filter((job) => job.priority === '高').length}</span></button><button className="view-tab">本周更新</button></div><button className="sort-button">最近更新 <ChevronDown size={15} /></button></div><section className="board">{(activeFlow?.statuses || STATUSES).map((status) => <div className="column" key={status} onDragOver={(event) => event.preventDefault()} onDrop={() => handleDrop(status)}><div className="column-head"><div className={`status-dot ${getStatusMeta(status).tone}`} /><h2>{status}</h2><span className="column-count">{flowJobs.filter((job) => job.status === status).length}</span><button className="column-more">···</button></div><div className="column-cards">{flowJobs.filter((job) => job.status === status).map((job) => <JobCard key={job.id} job={job} onClick={() => setSelectedId(job.id)} onDragStart={() => setDraggedId(job.id)} />)}<button className="add-card" onClick={() => setShowAdd(true)}><Plus size={15} /> 添加岗位</button></div></div>)}</section></>}
       </main>
       {selectedJob && <DetailDrawer job={selectedJob} events={events.filter((event) => event.jobId === selectedJob.id)} statuses={selectedFlow?.statuses || STATUSES} onClose={() => setSelectedId(null)} onUpdate={updateSelected} onStatusChange={(status) => updateStatus(selectedJob.id, status)} onDelete={() => deleteJob(selectedJob)} />}
+      {selectedJob && <TagsQuickEditor tags={selectedJob.tags || []} onChange={(tags) => updateSelected({ tags })} />}
       {showAdd && <AddJobModal onClose={() => setShowAdd(false)} onSubmit={submitNewJob} />}
     </div>
   )
@@ -199,11 +214,27 @@ export function App() {
 
 function JobCard({ job, onClick, onDragStart }: { job: JobPosition; onClick: () => void; onDragStart: () => void }) {
   const missing = !job.jobUrl || !job.processUrl
-  return <article className="job-card" draggable onDragStart={onDragStart} onClick={onClick}><div className="card-top"><span className={`priority priority-${job.priority}`}>{job.priority}优先</span>{missing && <span className="missing-info"><CircleAlert size={13} />待补充</span>}<button className="card-delete" onClick={(event) => { event.stopPropagation(); window.dispatchEvent(new CustomEvent('worremember:delete-job', { detail: job.id })) }} title="删除岗位"><Trash2 size={14} /></button><button className="card-arrow"><ArrowUpRight size={16} /></button></div><h3>{job.title}</h3><div className="company-line"><span className="company-avatar">{job.company.slice(0, 1)}</span><span>{job.company}</span></div><div className="card-meta"><span>{job.city || '地点待定'}</span><span>{job.direction}</span></div>{job.nextAction && <div className="next-action"><ClipboardList size={14} /><span>{job.nextAction}</span>{job.nextActionDeadline && <time>{job.nextActionDeadline.slice(5).replace('-', '/')}</time>}</div>}</article>
+  return <article className="job-card" draggable onDragStart={onDragStart} onClick={onClick}><div className="card-top"><span className={`priority priority-${job.priority}`}>{job.priority}优先</span>{missing && <span className="missing-info"><CircleAlert size={13} />待补充</span>}<button className="card-delete" onClick={(event) => { event.stopPropagation(); window.dispatchEvent(new CustomEvent('worremember:delete-job', { detail: job.id })) }} title="删除岗位"><Trash2 size={14} /></button><button className="card-arrow"><ArrowUpRight size={16} /></button></div><h3>{job.title}</h3><div className="company-line"><span className="company-avatar">{job.company.slice(0, 1)}</span><span>{job.company}</span></div><div className="card-meta"><span>{job.city || '地点待定'}</span><span>{job.direction}</span></div>{job.tags && job.tags.length > 0 && <div className="card-tags">{job.tags.slice(0, 3).map((tag) => <span className="card-tag" key={tag}>{tag}</span>)}</div>}{job.nextAction && <div className="next-action"><ClipboardList size={14} /><span>{job.nextAction}</span>{job.nextActionDeadline && <time>{job.nextActionDeadline.slice(5).replace('-', '/')}</time>}</div>}</article>
 }
 
 function DetailDrawer({ job, events, statuses, onClose, onUpdate, onStatusChange, onDelete }: { job: JobPosition; events: ProcessEvent[]; statuses: string[]; onClose: () => void; onUpdate: (patch: Partial<JobPosition>) => void; onStatusChange: (status: JobStatus) => void; onDelete: () => void }) {
   return <div className="drawer-backdrop" onClick={onClose}><aside className="detail-drawer" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span>岗位详情</span><button className="icon-button" onClick={onClose}><X size={18} /></button></div><div className="drawer-body"><div className="detail-title"><div className="large-avatar">{job.company.slice(0, 1)}</div><div><span>{job.company}</span><h2>{job.title}</h2><p>{job.city || '地点待定'} · {job.employmentType} · {job.direction}</p></div></div><div className="detail-status"><label>当前阶段</label><select value={job.status} onChange={(event) => onStatusChange(event.target.value as JobStatus)}>{STATUSES.map((status) => <option key={status}>{status}</option>)}</select></div><div className="detail-grid"><DetailField label="优先级"><select value={job.priority} onChange={(event) => onUpdate({ priority: event.target.value as Priority })}><option>高</option><option>中</option><option>低</option></select></DetailField><DetailField label="投递日期"><input type="date" value={job.appliedAt || ''} onChange={(event) => onUpdate({ appliedAt: event.target.value })} /></DetailField><DetailField label="截止日期"><input type="date" value={job.deadlineAt || ''} onChange={(event) => onUpdate({ deadlineAt: event.target.value })} /></DetailField><DetailField label="下一步截止"><input type="date" value={job.nextActionDeadline || ''} onChange={(event) => onUpdate({ nextActionDeadline: event.target.value })} /></DetailField></div><div className="detail-section"><div className="section-title"><h3>下一步行动</h3><span>行动先于焦虑</span></div><input className="wide-input" value={job.nextAction} onChange={(event) => onUpdate({ nextAction: event.target.value })} placeholder="例如：准备笔试、跟进 HR" /></div><div className="detail-section"><div className="section-title"><h3>相关链接</h3><span>{job.jobUrl && job.processUrl ? '信息完整' : '还有信息待补充'}</span></div><LinkRow label="岗位链接" url={job.jobUrl} onChange={(url) => onUpdate({ jobUrl: url })} /><LinkRow label="流程链接" url={job.processUrl} onChange={(url) => onUpdate({ processUrl: url })} /></div><div className="detail-section"><div className="section-title"><h3>流程历史</h3><span>{events.length} 次变更</span></div><div className="timeline">{events.length ? events.slice().reverse().map((event) => <div className="timeline-item" key={event.id}><div className="timeline-dot" /><div><strong>{event.fromStatus || '新建'} → {event.toStatus}</strong><time>{event.eventTime}</time></div></div>) : <div className="empty-timeline">状态变更会记录在这里</div>}</div></div><div className="detail-section"><div className="section-title"><h3>JD 摘要</h3><span>Markdown 备忘录将在 V0.2 加入</span></div><textarea className="jd-input" value={job.jdContent} onChange={(event) => onUpdate({ jdContent: event.target.value })} placeholder="粘贴岗位 JD，方便后续搜索和准备..." /></div></div><div className="drawer-footer"><button className="secondary-button"><ExternalLink size={16} /> 打开岗位链接</button><button className="primary-button" onClick={onClose}><Check size={16} /> 完成编辑</button></div></aside></div>
+}
+
+function FilterPanel({ priority, direction, status, sortBy, directions, statuses, onPriorityChange, onDirectionChange, onStatusChange, onSortChange }: { priority: Priority | '全部'; direction: string; status: string; sortBy: 'updated' | 'deadline'; directions: string[]; statuses: string[]; onPriorityChange: (value: Priority | '全部') => void; onDirectionChange: (value: string) => void; onStatusChange: (value: string) => void; onSortChange: (value: 'updated' | 'deadline') => void }) {
+  return <div className="filter-panel"><label>优先级<select value={priority} onChange={(event) => onPriorityChange(event.target.value as Priority | '全部')}><option>全部</option><option>高</option><option>中</option><option>低</option></select></label><label>方向<select value={direction} onChange={(event) => onDirectionChange(event.target.value)}><option>全部</option>{directions.map((item) => <option key={item}>{item}</option>)}</select></label><label>阶段<select value={status} onChange={(event) => onStatusChange(event.target.value)}><option>全部</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select></label><label>排序<select value={sortBy} onChange={(event) => onSortChange(event.target.value as 'updated' | 'deadline')}><option value="updated">最近更新</option><option value="deadline">截止日期</option></select></label></div>
+}
+
+function TagsQuickEditor({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
+  const [value, setValue] = useState('')
+  function addTag(event: FormEvent) {
+    event.preventDefault()
+    const next = value.trim()
+    if (!next || tags.includes(next)) return
+    onChange([...tags, next])
+    setValue('')
+  }
+  return <div className="tags-editor"><div className="tags-editor-title">岗位标签</div><div className="tag-list">{tags.length === 0 ? <span className="tag-empty">暂无标签</span> : tags.map((tag) => <button key={tag} className="tag-chip" onClick={() => onChange(tags.filter((item) => item !== tag))}>{tag}<X size={11} /></button>)}</div><form onSubmit={addTag}><input value={value} onChange={(event) => setValue(event.target.value)} placeholder="输入标签并回车" /><button type="submit" className="secondary-button"><Plus size={14} /> 添加</button></form></div>
 }
 
 function OverviewView({ jobs, tasks, events, notes, onCompleteTask }: { jobs: JobPosition[]; tasks: Task[]; events: CalendarEvent[]; notes: Note[]; onCompleteTask: (task: Task) => void }) {
@@ -304,4 +335,4 @@ function TrashView({ jobs, onRestore }: { jobs: JobPosition[]; onRestore: (job: 
 
 function DetailField({ label, children }: { label: string; children: React.ReactNode }) { return <label className="detail-field"><span>{label}</span>{children}</label> }
 function LinkRow({ label, url, onChange }: { label: string; url: string; onChange: (value: string) => void }) { return <label className="link-row"><span>{label}</span><input value={url} onChange={(event) => onChange(event.target.value)} placeholder="粘贴链接" />{url && <a href={url} target="_blank" rel="noreferrer" title="在浏览器打开"><ExternalLink size={15} /></a>}</label> }
-function AddJobModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { return <div className="modal-backdrop" onClick={onClose}><form className="modal" onClick={(event) => event.stopPropagation()} onSubmit={onSubmit}><div className="modal-head"><div><span className="eyebrow">新建记录</span><h2>添加一个新岗位</h2></div><button type="button" className="icon-button" onClick={onClose}><X size={18} /></button></div><div className="form-grid"><label><span>公司名称 *</span><input name="company" required placeholder="例如：远景智能" /></label><label><span>岗位名称 *</span><input name="title" required placeholder="例如：产品经理（校招）" /></label><label><span>岗位方向</span><input name="direction" placeholder="产品、开发、运营..." /></label><label><span>工作城市</span><input name="city" placeholder="例如：上海" /></label><label><span>工作类型</span><select name="employmentType"><option>校招</option><option>全职</option><option>实习</option></select></label><label><span>优先级</span><select name="priority"><option>高</option><option selected>中</option><option>低</option></select></label><label><span>岗位来源</span><input name="source" placeholder="官网、内推、招聘平台..." /></label><label><span>截止日期</span><input name="deadlineAt" type="date" /></label><label className="form-wide"><span>岗位链接</span><input name="jobUrl" type="url" placeholder="https://" /></label><label className="form-wide"><span>下一步行动</span><input name="nextAction" placeholder="例如：准备笔试" /></label><label><span>行动截止</span><input name="nextActionDeadline" type="date" /></label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="submit" className="primary-button"><Plus size={17} /> 创建岗位</button></div></form></div> }
+function AddJobModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { return <div className="modal-backdrop" onClick={onClose}><form className="modal" onClick={(event) => event.stopPropagation()} onSubmit={onSubmit}><div className="modal-head"><div><span className="eyebrow">新建记录</span><h2>添加一个新岗位</h2></div><button type="button" className="icon-button" onClick={onClose}><X size={18} /></button></div><div className="form-grid"><label><span>公司名称 *</span><input name="company" required placeholder="例如：远景智能" /></label><label><span>岗位名称 *</span><input name="title" required placeholder="例如：产品经理（校招）" /></label><label><span>岗位方向</span><input name="direction" placeholder="产品、开发、运营..." /></label><label><span>标签</span><input name="tags" placeholder="重点、内推、待跟进，用逗号分隔" /></label><label><span>工作城市</span><input name="city" placeholder="例如：上海" /></label><label><span>工作类型</span><select name="employmentType"><option>校招</option><option>全职</option><option>实习</option></select></label><label><span>优先级</span><select name="priority"><option>高</option><option selected>中</option><option>低</option></select></label><label><span>岗位来源</span><input name="source" placeholder="官网、内推、招聘平台..." /></label><label><span>截止日期</span><input name="deadlineAt" type="date" /></label><label className="form-wide"><span>岗位链接</span><input name="jobUrl" type="url" placeholder="https://" /></label><label className="form-wide"><span>下一步行动</span><input name="nextAction" placeholder="例如：准备笔试" /></label><label><span>行动截止</span><input name="nextActionDeadline" type="date" /></label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="submit" className="primary-button"><Plus size={17} /> 创建岗位</button></div></form></div> }
