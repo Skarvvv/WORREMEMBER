@@ -88,3 +88,8 @@ html, body, #root { height: 100%; overflow: hidden; }
 .note-tile { cursor: pointer; }
 .note-tile:hover { border-color: #bdbab0; }
 .modal textarea { border: 1px solid var(--line); border-radius: 5px; background: #fffefa; outline: none; color: var(--ink); font-size: 11px; padding: 9px 10px; resize: vertical; font-family: inherit; line-height: 1.7; }
+
+.board-empty { display: flex; align-items: center; gap: 14px; padding: 18px 20px; margin-bottom: 14px; background: var(--paper); border: 1px dashed #d8d4c9; border-radius: 10px; color: var(--muted); }
+.board-empty strong { display: block; font-size: 13px; font-weight: 500; color: var(--ink); }
+.board-empty span { font-size: 11px; }
+.board-empty button { margin-left: auto; }

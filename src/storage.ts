@@ -32,40 +32,6 @@ function mapDesktopJob(record: Record<string, unknown>): JobPosition {
   }
 }
 
-const seedJobs: JobPosition[] = [
-  {
-    id: 'seed-1', company: '远景智能', title: '产品经理（校招）', direction: '产品', city: '上海',
-    employmentType: '校招', source: '官网', status: '已投递', priority: '高',
-    jobUrl: 'https://example.com/job/1', processUrl: '', appliedAt: '2026-09-02',
-    deadlineAt: '2026-09-10', nextAction: '准备笔试', nextActionDeadline: '2026-09-08',
-    jdContent: '负责智能制造产品的规划与落地。', createdAt: '2026-09-01', updatedAt: '2026-09-05',
-  },
-  {
-    id: 'seed-2', company: '北辰科技', title: '前端开发工程师', direction: '开发', city: '北京',
-    employmentType: '全职', source: '内推', status: '笔试', priority: '高',
-    jobUrl: 'https://example.com/job/2', processUrl: 'https://example.com/process/2', appliedAt: '2026-08-27',
-    nextAction: '完成笔试复盘', nextActionDeadline: '2026-09-06', jdContent: '', createdAt: '2026-08-25', updatedAt: '2026-09-04',
-  },
-  {
-    id: 'seed-3', company: '青禾工作室', title: '用户研究实习生', direction: '研究', city: '杭州',
-    employmentType: '实习', source: '招聘平台', status: '待投递', priority: '中',
-    jobUrl: '', processUrl: '', deadlineAt: '2026-09-12', nextAction: '补充项目经历',
-    jdContent: '参与用户访谈、问卷设计与体验分析。', createdAt: '2026-09-03', updatedAt: '2026-09-03',
-  },
-  {
-    id: 'seed-4', company: '星河数据', title: '数据分析师', direction: '数据', city: '深圳',
-    employmentType: '校招', source: '官网', status: '已投递', priority: '中',
-    jobUrl: 'https://example.com/job/4', processUrl: '', appliedAt: '2026-09-04',
-    nextAction: '关注笔试通知', jdContent: '', createdAt: '2026-09-04', updatedAt: '2026-09-05',
-  },
-  {
-    id: 'seed-5', company: '蓝岸科技', title: '后端开发工程师', direction: '开发', city: '上海',
-    employmentType: '全职', source: '内推', status: '已投递', priority: '高',
-    jobUrl: 'https://example.com/job/5', processUrl: '', appliedAt: '2026-09-05',
-    nextAction: '准备技术面', jdContent: '', createdAt: '2026-09-05', updatedAt: '2026-09-05',
-  },
-]
-
 function read<T>(key: string, fallback: T): T {
   try {
     const value = localStorage.getItem(key)
@@ -76,8 +42,8 @@ function read<T>(key: string, fallback: T): T {
 }
 
 export function loadJobs(): JobPosition[] {
-  // 桌面端以 SQLite 为唯一数据源，不能注入示例岗位，否则数据库为空时会显示预设数据，看起来像"修改被回滚"。
-  return read(JOBS_KEY, isDesktopRuntime() ? [] : seedJobs)
+  // 不再内置示例岗位：新装启动就是空看板，避免示例数据和真实记录混在一起。
+  return read(JOBS_KEY, [])
 }
 
 export function loadDeletedJobs(): JobPosition[] {

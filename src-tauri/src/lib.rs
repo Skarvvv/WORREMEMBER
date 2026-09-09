@@ -108,11 +108,6 @@ fn initialize_database(connection: &Connection) -> Result<(), rusqlite::Error> {
     .or_else(|error| if error.to_string().contains("duplicate column name") { Ok(0) } else { Err(error) })?;
     connection.execute("ALTER TABLE jobs ADD COLUMN flow_id TEXT NOT NULL DEFAULT 'flow-general'", []).or_else(|error| if error.to_string().contains("duplicate column name") { Ok(0) } else { Err(error) })?;
     connection.execute("ALTER TABLE jobs ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'", []).or_else(|error| if error.to_string().contains("duplicate column name") { Ok(0) } else { Err(error) })?;
-    connection.execute_batch(
-        "INSERT OR IGNORE INTO jobs (id, company, title, direction, city, employment_type, source, status, priority, job_url, process_url, applied_at, next_action, jd_content, created_at, updated_at) VALUES
-        ('seed-4', '星河数据', '数据分析师', '数据', '深圳', '校招', '官网', '已投递', '中', 'https://example.com/job/4', '', '2026-09-04', '关注笔试通知', '', '2026-09-04', '2026-09-05'),
-        ('seed-5', '蓝岸科技', '后端开发工程师', '开发', '上海', '全职', '内推', '已投递', '高', 'https://example.com/job/5', '', '2026-09-05', '准备技术面', '', '2026-09-05', '2026-09-05');",
-    )?;
     Ok(())
 }
 
@@ -211,17 +206,17 @@ mod tests {
     // 回归保护：前端曾经漏传 tags，导致整次写入因 missing field 失败且被静默吞掉，表现为"重启后数据回到旧状态"。
     #[test]
     fn job_record_without_tags_still_deserializes() {
-        let payload = r#"{"id":"seed-1","company":"远景智能","title":"产品经理","employment_type":"校招","status":"已投递","flow_id":"flow-general"}"#;
+        let payload = r#"{"id":"job-1","company":"测试公司","title":"产品经理","employment_type":"校招","status":"已投递","flow_id":"flow-general"}"#;
         let record: JobRecord = serde_json::from_str(payload).unwrap();
-        assert_eq!(record.id, "seed-1");
+        assert_eq!(record.id, "job-1");
         assert!(record.tags.is_empty());
     }
 
     #[test]
     fn process_event_record_without_optional_fields_still_deserializes() {
-        let payload = r#"{"id":"evt-1","job_id":"seed-1","to_status":"已投递"}"#;
+        let payload = r#"{"id":"evt-1","job_id":"job-1","to_status":"已投递"}"#;
         let record: ProcessEventRecord = serde_json::from_str(payload).unwrap();
-        assert_eq!(record.job_id, "seed-1");
+        assert_eq!(record.job_id, "job-1");
         assert!(record.from_status.is_none());
     }
 }
