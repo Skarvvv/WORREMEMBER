@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleAlert, ClipboardList, ExternalLink, FileText, LayoutDashboard, Plus, RotateCcw, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
-import type { DragEvent, FormEvent } from 'react'
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleAlert, ClipboardList, ExternalLink, FileText, LayoutDashboard, Pencil, Pin, Plus, RotateCcw, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
+import type { DragEvent, FormEvent, MouseEvent } from 'react'
 import { backupDesktopDatabase, deleteDesktopJob, downloadFile, isDesktopRuntime, loadCalendarEvents, loadDeletedJobs, loadDesktopDeletedJobs, loadDesktopJobs, loadDesktopProcessEvents, loadFlowTemplates, loadJobs, loadNotes, loadProcessEvents, loadTasks, persistDesktopJob, persistDesktopJobs, persistDesktopProcessEvent, restoreDesktopJob, saveCalendarEvents, saveDeletedJobs, saveFlowTemplates, saveJobs, saveNotes, saveProcessEvents, saveTasks } from './storage'
 import { getStatusMeta, JobStatus, Priority, STATUSES, type CalendarEvent, type FlowTemplate, type JobPosition, type Note, type ProcessEvent, type Task } from './types'
 
@@ -270,28 +270,129 @@ function CalendarView({ events, jobs, onChange }: { events: CalendarEvent[]; job
   const [type, setType] = useState('面试')
   const [startAt, setStartAt] = useState('')
   const [jobId, setJobId] = useState('')
-  function addEvent(event: FormEvent) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  function resetForm() {
+    setTitle(''); setType('面试'); setStartAt(''); setJobId(''); setEditingId(null)
+  }
+  function submitEvent(event: FormEvent) {
     event.preventDefault()
     if (!title || !startAt) return
-    const next = { id: crypto.randomUUID(), title, type, startAt, jobId: jobId || undefined, location: '', note: '', createdAt: today, updatedAt: today }
-    onChange([next, ...events])
-    setTitle(''); setStartAt(''); setJobId('')
+    if (editingId) {
+      onChange(events.map((item) => item.id === editingId ? { ...item, title, type, startAt, jobId: jobId || undefined, updatedAt: today } : item))
+    } else {
+      onChange([{ id: crypto.randomUUID(), title, type, startAt, jobId: jobId || undefined, location: '', note: '', createdAt: today, updatedAt: today }, ...events])
+    }
+    resetForm()
   }
-  return <section className="page-view calendar-view"><div className="page-heading"><div><span className="eyebrow">时间安排</span><h2>日程</h2><p>把笔试、面试和准备任务集中到一个时间线上。</p></div></div><form className="inline-form" onSubmit={addEvent}><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="事件名称，例如：远景智能一面" required /><select value={type} onChange={(event) => setType(event.target.value)}><option>面试</option><option>笔试</option><option>投递截止</option><option>准备任务</option><option>自定义</option></select><input type="datetime-local" value={startAt} onChange={(event) => setStartAt(event.target.value)} required /><select value={jobId} onChange={(event) => setJobId(event.target.value)}><option value="">不关联岗位</option>{jobs.map((job) => <option key={job.id} value={job.id}>{job.company} · {job.title}</option>)}</select><button className="primary-button" type="submit"><Plus size={16} /> 添加日程</button></form><div className="event-list">{events.length === 0 ? <div className="panel-empty">还没有日程安排</div> : events.sort((a, b) => a.startAt.localeCompare(b.startAt)).map((event) => <article className="event-row" key={event.id}><div className="event-date"><strong>{event.startAt.slice(5, 10).replace('-', '/')}</strong><span>{event.startAt.slice(11, 16)}</span></div><div><strong>{event.title}</strong><small>{event.type}{event.jobId ? ` · ${jobs.find((job) => job.id === event.jobId)?.company || ''}` : ''}</small></div><button className="icon-button" onClick={() => onChange(events.filter((item) => item.id !== event.id))} title="删除日程"><Trash2 size={15} /></button></article>)}</div></section>
+  function startEdit(item: CalendarEvent) {
+    setEditingId(item.id); setTitle(item.title); setType(item.type); setStartAt(item.startAt); setJobId(item.jobId || '')
+  }
+  return (
+    <section className="page-view calendar-view">
+      <form className="inline-form" onSubmit={submitEvent}>
+        <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="事件名称，例如：远景智能一面" required />
+        <select value={type} onChange={(event) => setType(event.target.value)}><option>面试</option><option>笔试</option><option>投递截止</option><option>准备任务</option><option>自定义</option></select>
+        <input type="datetime-local" value={startAt} onChange={(event) => setStartAt(event.target.value)} required />
+        <select value={jobId} onChange={(event) => setJobId(event.target.value)}><option value="">不关联岗位</option>{jobs.map((job) => <option key={job.id} value={job.id}>{job.company} · {job.title}</option>)}</select>
+        <button className="primary-button" type="submit"><Plus size={16} /> {editingId ? '保存修改' : '添加日程'}</button>
+        {editingId && <button className="secondary-button" type="button" onClick={resetForm}>取消编辑</button>}
+      </form>
+      <div className="event-list">{events.length === 0 ? <div className="panel-empty">还没有日程安排</div> : events.slice().sort((a, b) => a.startAt.localeCompare(b.startAt)).map((event) => <article className={editingId === event.id ? 'event-row editing' : 'event-row'} key={event.id}><div className="event-date"><strong>{event.startAt.slice(5, 10).replace('-', '/')}</strong><span>{event.startAt.slice(11, 16)}</span></div><div><strong>{event.title}</strong><small>{event.type}{event.jobId ? ` · ${jobs.find((job) => job.id === event.jobId)?.company || ''}` : ''}</small></div><div className="row-actions"><button className="icon-button" onClick={() => startEdit(event)} title="编辑日程"><Pencil size={15} /></button><button className="icon-button" onClick={() => { if (editingId === event.id) resetForm(); onChange(events.filter((item) => item.id !== event.id)) }} title="删除日程"><Trash2 size={15} /></button></div></article>)}</div>
+    </section>
+  )
 }
 
 function NotesView({ notes, jobs, onChange }: { notes: Note[]; jobs: JobPosition[]; onChange: (notes: Note[]) => void }) {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [jobId, setJobId] = useState('')
+  const [editingNote, setEditingNote] = useState<Note | null>(null)
+  const openNotes = notes.filter((note) => !note.completed).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt))
+  const doneNotes = notes.filter((note) => note.completed).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   function addNote(event: FormEvent) {
     event.preventDefault()
     if (!title.trim()) return
-    const note: Note = { id: crypto.randomUUID(), title: title.trim(), content, jobId: jobId || undefined, tags: [], pinned: false, createdAt: today, updatedAt: today }
+    const note: Note = { id: crypto.randomUUID(), title: title.trim(), content, jobId: jobId || undefined, tags: [], pinned: false, completed: false, createdAt: today, updatedAt: today }
     onChange([note, ...notes]); setTitle(''); setContent(''); setJobId('')
   }
   function togglePinned(note: Note) { onChange(notes.map((item) => item.id === note.id ? { ...item, pinned: !item.pinned, updatedAt: today } : item)) }
-  return <section className="page-view notes-view"><div className="page-heading"><div><span className="eyebrow">知识整理</span><h2>备忘录</h2><p>记录岗位分析、公司研究和面试复盘，随时回到具体岗位。</p></div></div><form className="note-form" onSubmit={addNote}><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="备忘录标题" required /><select value={jobId} onChange={(event) => setJobId(event.target.value)}><option value="">不关联岗位</option>{jobs.map((job) => <option key={job.id} value={job.id}>{job.company} · {job.title}</option>)}</select><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="写下岗位分析、面试问题或复盘内容..." rows={4} /><button className="primary-button" type="submit"><Plus size={16} /> 新建备忘录</button></form><div className="note-list">{notes.length === 0 ? <div className="panel-empty">还没有备忘录</div> : notes.map((note) => <article className={note.pinned ? 'note-card pinned' : 'note-card'} key={note.id}><div className="note-card-head"><div><h3>{note.title}</h3><small>{note.jobId ? jobs.find((job) => job.id === note.jobId)?.company : '独立笔记'} · {note.updatedAt}</small></div><div><button className="icon-button" onClick={() => togglePinned(note)} title={note.pinned ? '取消置顶' : '置顶'}><Check size={15} /></button><button className="icon-button" onClick={() => onChange(notes.filter((item) => item.id !== note.id))} title="删除备忘录"><Trash2 size={15} /></button></div></div><p>{note.content || '暂无内容'}</p></article>)}</div></section>
+  function toggleCompleted(note: Note) { onChange(notes.map((item) => item.id === note.id ? { ...item, completed: !item.completed, updatedAt: today } : item)) }
+  function removeNote(note: Note) { if (editingNote?.id === note.id) setEditingNote(null); onChange(notes.filter((item) => item.id !== note.id)) }
+  function saveNote(patch: Partial<Note>) {
+    if (!editingNote) return
+    onChange(notes.map((item) => item.id === editingNote.id ? { ...item, ...patch, updatedAt: today } : item))
+    setEditingNote(null)
+  }
+  return (
+    <section className="page-view notes-view">
+      <form className="note-form" onSubmit={addNote}>
+        <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="备忘录标题" required />
+        <select value={jobId} onChange={(event) => setJobId(event.target.value)}><option value="">不关联岗位</option>{jobs.map((job) => <option key={job.id} value={job.id}>{job.company} · {job.title}</option>)}</select>
+        <textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="写下岗位分析、面试问题或复盘内容..." rows={4} />
+        <button className="primary-button" type="submit"><Plus size={16} /> 新建备忘录</button>
+      </form>
+      <div className="note-board">
+        <div className="note-section">
+          <div className="note-section-title"><h3>进行中</h3><span>{openNotes.length} 篇</span></div>
+          {openNotes.length === 0 ? <div className="panel-empty">还没有进行中的笔记</div> : <div className="note-grid">{openNotes.map((note) => <NoteTile key={note.id} note={note} company={jobs.find((job) => job.id === note.jobId)?.company} onToggle={() => toggleCompleted(note)} onPin={() => togglePinned(note)} onDelete={() => removeNote(note)} onEdit={() => setEditingNote(note)} />)}</div>}
+        </div>
+        <div className="note-section">
+          <div className="note-section-title"><h3>已完成</h3><span>{doneNotes.length} 篇</span></div>
+          {doneNotes.length === 0 ? <div className="panel-empty">标记完成后，笔记会自动移到这里</div> : <div className="note-grid">{doneNotes.map((note) => <NoteTile key={note.id} note={note} company={jobs.find((job) => job.id === note.jobId)?.company} onToggle={() => toggleCompleted(note)} onPin={() => togglePinned(note)} onDelete={() => removeNote(note)} onEdit={() => setEditingNote(note)} />)}</div>}
+        </div>
+      </div>
+      {editingNote && <NoteEditorModal note={editingNote} jobs={jobs} onClose={() => setEditingNote(null)} onSave={saveNote} />}
+    </section>
+  )
+}
+
+function NoteTile({ note, company, onEdit, onToggle, onPin, onDelete }: { note: Note; company?: string; onEdit: () => void; onToggle: () => void; onPin: () => void; onDelete: () => void }) {
+  const className = ['note-tile', note.completed ? 'done' : '', note.pinned ? 'pinned' : ''].filter(Boolean).join(' ')
+  function run(action: () => void) {
+    return (event: MouseEvent) => { event.stopPropagation(); action() }
+  }
+  return (
+    <article className={className} onClick={onEdit} title="点击编辑笔记">
+      <h4>{note.title}</h4>
+      {note.content && <p>{note.content}</p>}
+      <small>{company || '独立笔记'} · {note.updatedAt}</small>
+      <div className="note-tile-actions">
+        <button className="icon-button" onClick={run(onToggle)} title={note.completed ? '标记为未完成' : '标记为完成'}>{note.completed ? <RotateCcw size={13} /> : <Check size={13} />}</button>
+        <button className={note.pinned ? 'icon-button active' : 'icon-button'} onClick={run(onPin)} title={note.pinned ? '取消置顶' : '置顶'}><Pin size={13} /></button>
+        <button className="icon-button" onClick={run(onDelete)} title="删除备忘录"><Trash2 size={13} /></button>
+      </div>
+    </article>
+  )
+}
+
+function NoteEditorModal({ note, jobs, onClose, onSave }: { note: Note; jobs: JobPosition[]; onClose: () => void; onSave: (patch: Partial<Note>) => void }) {
+  const [title, setTitle] = useState(note.title)
+  const [content, setContent] = useState(note.content)
+  const [jobId, setJobId] = useState(note.jobId || '')
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!title.trim()) return
+    onSave({ title: title.trim(), content, jobId: jobId || undefined })
+  }
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <form className="modal" onClick={(event) => event.stopPropagation()} onSubmit={submit}>
+        <div className="modal-head">
+          <div><span className="eyebrow">编辑备忘录</span><h2>{note.title}</h2></div>
+          <button type="button" className="icon-button" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="form-grid">
+          <label className="form-wide"><span>标题</span><input value={title} onChange={(event) => setTitle(event.target.value)} required /></label>
+          <label className="form-wide"><span>关联岗位</span><select value={jobId} onChange={(event) => setJobId(event.target.value)}><option value="">不关联岗位</option>{jobs.map((job) => <option key={job.id} value={job.id}>{job.company} · {job.title}</option>)}</select></label>
+          <label className="form-wide"><span>内容</span><textarea value={content} onChange={(event) => setContent(event.target.value)} rows={9} placeholder="写下岗位分析、面试问题或复盘内容..." /></label>
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="secondary-button" onClick={onClose}>取消</button>
+          <button type="submit" className="primary-button"><Check size={16} /> 保存修改</button>
+        </div>
+      </form>
+    </div>
+  )
 }
 
 function FlowSettings({ flows, onChange, onCreate, onDelete, onAssign, onImport, jobs, deletedJobs, tasks, events, notes }: { flows: FlowTemplate[]; onChange: (flows: FlowTemplate[]) => void; onCreate: () => void; onDelete: (flowId: string) => void; onAssign: (jobId: string, flowId: string) => void; onImport: (data: { jobs: JobPosition[]; deletedJobs: JobPosition[]; tasks: Task[]; events: CalendarEvent[]; notes: Note[]; flows: FlowTemplate[] }) => void; jobs: JobPosition[]; deletedJobs: JobPosition[]; tasks: Task[]; events: CalendarEvent[]; notes: Note[] }) {
@@ -351,7 +452,7 @@ function FlowSettings({ flows, onChange, onCreate, onDelete, onAssign, onImport,
 }
 
 function TrashView({ jobs, onRestore }: { jobs: JobPosition[]; onRestore: (job: JobPosition) => void }) {
-  return <section className="trash-view"><div className="trash-heading"><div><span className="eyebrow">已移除岗位</span><h2>回收站</h2></div><span>{jobs.length} 个岗位</span></div>{jobs.length === 0 ? <div className="empty-state"><Trash2 size={24} /><p>回收站是空的</p></div> : <div className="trash-list">{jobs.map((job) => <article className="trash-item" key={job.id}><div><strong>{job.title}</strong><span>{job.company} · 原阶段：{job.status}</span></div><button className="secondary-button" onClick={() => onRestore(job)}><RotateCcw size={15} /> 恢复</button></article>)}</div>}</section>
+  return <section className="trash-view"><div className="view-count">{jobs.length} 个岗位</div>{jobs.length === 0 ? <div className="empty-state"><Trash2 size={24} /><p>回收站是空的</p></div> : <div className="trash-list">{jobs.map((job) => <article className="trash-item" key={job.id}><div><strong>{job.title}</strong><span>{job.company} · 原阶段：{job.status}</span></div><button className="secondary-button" onClick={() => onRestore(job)}><RotateCcw size={15} /> 恢复</button></article>)}</div>}</section>
 }
 
 function DetailField({ label, children }: { label: string; children: React.ReactNode }) { return <label className="detail-field"><span>{label}</span>{children}</label> }

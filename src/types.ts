@@ -73,6 +73,7 @@ export interface Note {
   jobId?: string
   tags: string[]
   pinned: boolean
+  completed?: boolean
   createdAt: string
   updatedAt: string
 }

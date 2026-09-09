@@ -64,3 +64,27 @@ html, body, #root { height: 100%; overflow: hidden; }
 .topbar, .summary-row, .board-toolbar { position: static; inset: auto; flex: none; }
 .board { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .trash-view { flex: 1; min-height: 0; overflow-y: auto; }
+
+.view-count { color: var(--muted); font-size: 11px; padding: 0 0 14px; }
+.note-board { display: grid; gap: 24px; }
+.note-section-title { display: flex; align-items: baseline; gap: 8px; padding-bottom: 10px; }
+.note-section-title h3 { margin: 0; font-size: 13px; font-weight: 500; }
+.note-section-title span { color: var(--muted); font-size: 11px; }
+.note-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(166px, 1fr)); gap: 9px; max-width: 880px; }
+.note-tile { display: flex; flex-direction: column; gap: 5px; padding: 12px; min-height: 94px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; }
+.note-tile.pinned { border-color: #d99b42; box-shadow: inset 3px 0 #d99b42; }
+.note-tile h4 { margin: 0; font-size: 12px; font-weight: 500; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.note-tile p { margin: 0; color: #7a7a73; font-size: 11px; line-height: 1.6; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.note-tile small { color: var(--muted); font-size: 10px; margin-top: auto; }
+.note-tile-actions { display: flex; gap: 4px; margin-top: 8px; }
+.note-tile-actions .icon-button { width: 26px; height: 26px; border-radius: 6px; }
+.note-tile.done { background: #f0eee8; border-color: #e6e3da; }
+.note-tile.done h4 { color: #9a9a93; text-decoration: line-through; }
+.note-tile.done p { color: #a9a9a2; }
+.note-tile.done small { color: #a9a9a2; }
+
+.row-actions { margin-left: auto; display: flex; gap: 6px; }
+.event-row.editing { border-color: var(--accent); background: #fff8f4; }
+.note-tile { cursor: pointer; }
+.note-tile:hover { border-color: #bdbab0; }
+.modal textarea { border: 1px solid var(--line); border-radius: 5px; background: #fffefa; outline: none; color: var(--ink); font-size: 11px; padding: 9px 10px; resize: vertical; font-family: inherit; line-height: 1.7; }
