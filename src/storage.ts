@@ -13,6 +13,8 @@ function isDesktopRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
+export { isDesktopRuntime }
+
 function mapDesktopJob(record: Record<string, unknown>): JobPosition {
   return {
     id: String(record.id || ''), company: String(record.company || ''), title: String(record.title || ''),
@@ -74,7 +76,8 @@ function read<T>(key: string, fallback: T): T {
 }
 
 export function loadJobs(): JobPosition[] {
-  return read(JOBS_KEY, seedJobs)
+  // 桌面端以 SQLite 为唯一数据源，不能注入示例岗位，否则数据库为空时会显示预设数据，看起来像"修改被回滚"。
+  return read(JOBS_KEY, isDesktopRuntime() ? [] : seedJobs)
 }
 
 export function loadDeletedJobs(): JobPosition[] {
@@ -95,8 +98,8 @@ export function loadProcessEvents(): ProcessEvent[] {
   return read(EVENTS_KEY, [])
 }
 
+// 桌面端没有 SQLite 之外的第二份流程历史，这里必须照常写入，否则阶段变更记录重启即丢。
 export function saveProcessEvents(events: ProcessEvent[]) {
-  if (isDesktopRuntime()) return
   localStorage.setItem(EVENTS_KEY, JSON.stringify(events))
 }
 
@@ -104,8 +107,8 @@ export function loadFlowTemplates(): FlowTemplate[] {
   return read(FLOWS_KEY, DEFAULT_FLOW_TEMPLATES)
 }
 
+// 流程模板同样只有这一份存储，桌面端跳过会导致自定义流程重启即丢失。
 export function saveFlowTemplates(flows: FlowTemplate[]) {
-  if (isDesktopRuntime()) return
   localStorage.setItem(FLOWS_KEY, JSON.stringify(flows))
 }
 
@@ -148,7 +151,7 @@ export async function loadDesktopDeletedJobs(): Promise<JobPosition[] | null> {
   }
 }
 
-export async function persistDesktopJob(job: JobPosition): Promise<void> {
+export async function persistDesktopJob(job: JobPosition): Promise<boolean> {
   try {
     await invoke('upsert_job', {
       job: {
@@ -172,17 +175,74 @@ export async function persistDesktopJob(job: JobPosition): Promise<void> {
         updated_at: job.updatedAt,
         deleted_at: job.deletedAt ?? null,
         flow_id: job.flowId ?? 'flow-general',
+        tags: job.tags ?? [],
       },
     })
-  } catch {
-    // Browser preview keeps using localStorage until the Tauri runtime is available.
+    return true
+  } catch (error) {
+    // 写入失败必须留下痕迹，否则数据会静默丢失，用户只会看到"重启后回到旧状态"。
+    console.error('[WORREMEMBER] 岗位写入 SQLite 失败', job.id, error)
+    return false
   }
 }
 
-export async function deleteDesktopJob(jobId: string): Promise<void> {
-  try { await invoke('delete_job', { jobId }) } catch { /* Browser preview uses localStorage. */ }
+export async function persistDesktopJobs(jobs: JobPosition[]): Promise<number> {
+  if (!isDesktopRuntime()) return 0
+  const results = await Promise.all(jobs.map((job) => persistDesktopJob(job)))
+  return results.filter(Boolean).length
 }
 
-export async function restoreDesktopJob(jobId: string): Promise<void> {
-  try { await invoke('restore_job', { jobId }) } catch { /* Browser preview uses localStorage. */ }
+export async function loadDesktopProcessEvents(): Promise<ProcessEvent[] | null> {
+  try {
+    const events = await invoke<Record<string, unknown>[]>('list_process_events')
+    return events.map((record) => ({
+      id: String(record.id || ''),
+      jobId: String(record.job_id ?? record.jobId ?? ''),
+      fromStatus: String(record.from_status ?? record.fromStatus ?? '') || undefined,
+      toStatus: String(record.to_status ?? record.toStatus ?? ''),
+      note: String(record.note || ''),
+      eventTime: String(record.event_time ?? record.eventTime ?? today),
+    }))
+  } catch {
+    return null
+  }
+}
+
+export async function persistDesktopProcessEvent(event: ProcessEvent): Promise<boolean> {
+  try {
+    await invoke('upsert_process_event', {
+      event: {
+        id: event.id,
+        job_id: event.jobId,
+        from_status: event.fromStatus ?? null,
+        to_status: event.toStatus,
+        note: event.note,
+        event_time: event.eventTime,
+      },
+    })
+    return true
+  } catch (error) {
+    console.error('[WORREMEMBER] 流程历史写入 SQLite 失败', event.id, error)
+    return false
+  }
+}
+
+export async function deleteDesktopJob(jobId: string): Promise<boolean> {
+  try {
+    await invoke('delete_job', { jobId })
+    return true
+  } catch (error) {
+    console.error('[WORREMEMBER] 岗位删除失败', jobId, error)
+    return false
+  }
+}
+
+export async function restoreDesktopJob(jobId: string): Promise<boolean> {
+  try {
+    await invoke('restore_job', { jobId })
+    return true
+  } catch (error) {
+    console.error('[WORREMEMBER] 岗位恢复失败', jobId, error)
+    return false
+  }
 }

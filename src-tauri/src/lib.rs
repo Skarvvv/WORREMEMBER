@@ -18,7 +18,9 @@ fn startup_log(message: &str) {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+// serde(default)：前端漏传任何字段时回退默认值，而不是让整次写入因 missing field 失败并静默丢数据。
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
 struct JobRecord {
     id: String,
     company: String,
@@ -41,6 +43,17 @@ struct JobRecord {
     deleted_at: Option<String>,
     flow_id: Option<String>,
     tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct ProcessEventRecord {
+    id: String,
+    job_id: String,
+    from_status: Option<String>,
+    to_status: String,
+    note: String,
+    event_time: String,
 }
 
 fn database_path() -> Result<PathBuf, String> {
@@ -145,6 +158,40 @@ fn restore_job(database: State<'_, Database>, job_id: String) -> Result<(), Stri
 }
 
 #[tauri::command]
+fn list_process_events(database: State<'_, Database>) -> Result<Vec<ProcessEventRecord>, String> {
+    let connection = database.0.lock().map_err(|_| "数据库锁定失败".to_string())?;
+    let mut statement = connection
+        .prepare("SELECT id, job_id, from_status, to_status, note, event_time FROM process_events ORDER BY event_time ASC")
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(ProcessEventRecord {
+                id: row.get(0)?,
+                job_id: row.get(1)?,
+                from_status: row.get(2)?,
+                to_status: row.get(3)?,
+                note: row.get(4)?,
+                event_time: row.get(5)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn upsert_process_event(database: State<'_, Database>, event: ProcessEventRecord) -> Result<(), String> {
+    let connection = database.0.lock().map_err(|_| "数据库锁定失败".to_string())?;
+    connection
+        .execute(
+            "INSERT INTO process_events (id, job_id, from_status, to_status, note, event_time) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET from_status=excluded.from_status, to_status=excluded.to_status, note=excluded.note, event_time=excluded.event_time",
+            params![event.id, event.job_id, event.from_status, event.to_status, event.note, event.event_time],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn backup_database() -> Result<String, String> {
     let source = database_path()?;
     let backups = source
@@ -155,6 +202,28 @@ fn backup_database() -> Result<String, String> {
     let target = backups.join(format!("backup-{}.sqlite", chrono_like_timestamp()));
     fs::copy(source, &target).map_err(|error| error.to_string())?;
     Ok(target.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 回归保护：前端曾经漏传 tags，导致整次写入因 missing field 失败且被静默吞掉，表现为"重启后数据回到旧状态"。
+    #[test]
+    fn job_record_without_tags_still_deserializes() {
+        let payload = r#"{"id":"seed-1","company":"远景智能","title":"产品经理","employment_type":"校招","status":"已投递","flow_id":"flow-general"}"#;
+        let record: JobRecord = serde_json::from_str(payload).unwrap();
+        assert_eq!(record.id, "seed-1");
+        assert!(record.tags.is_empty());
+    }
+
+    #[test]
+    fn process_event_record_without_optional_fields_still_deserializes() {
+        let payload = r#"{"id":"evt-1","job_id":"seed-1","to_status":"已投递"}"#;
+        let record: ProcessEventRecord = serde_json::from_str(payload).unwrap();
+        assert_eq!(record.job_id, "seed-1");
+        assert!(record.from_status.is_none());
+    }
 }
 
 fn chrono_like_timestamp() -> String {
@@ -176,7 +245,7 @@ pub fn run() {
             startup_log("setup:complete");
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_jobs, list_deleted_jobs, upsert_job, delete_job, restore_job, backup_database])
+        .invoke_handler(tauri::generate_handler![list_jobs, list_deleted_jobs, upsert_job, delete_job, restore_job, list_process_events, upsert_process_event, backup_database])
         .run(tauri::generate_context!())
         .unwrap_or_else(|error| {
             startup_log(&format!("run:error={error}"));

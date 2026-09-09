@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleAlert, ClipboardList, ExternalLink, FileText, LayoutDashboard, Plus, RotateCcw, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
 import type { DragEvent, FormEvent } from 'react'
-import { backupDesktopDatabase, deleteDesktopJob, downloadFile, loadCalendarEvents, loadDeletedJobs, loadDesktopDeletedJobs, loadDesktopJobs, loadFlowTemplates, loadJobs, loadNotes, loadProcessEvents, loadTasks, persistDesktopJob, restoreDesktopJob, saveCalendarEvents, saveDeletedJobs, saveFlowTemplates, saveJobs, saveNotes, saveProcessEvents, saveTasks } from './storage'
+import { backupDesktopDatabase, deleteDesktopJob, downloadFile, isDesktopRuntime, loadCalendarEvents, loadDeletedJobs, loadDesktopDeletedJobs, loadDesktopJobs, loadDesktopProcessEvents, loadFlowTemplates, loadJobs, loadNotes, loadProcessEvents, loadTasks, persistDesktopJob, persistDesktopJobs, persistDesktopProcessEvent, restoreDesktopJob, saveCalendarEvents, saveDeletedJobs, saveFlowTemplates, saveJobs, saveNotes, saveProcessEvents, saveTasks } from './storage'
 import { getStatusMeta, JobStatus, Priority, STATUSES, type CalendarEvent, type FlowTemplate, type JobPosition, type Note, type ProcessEvent, type Task } from './types'
 
 const today = new Date().toISOString().slice(0, 10)
@@ -51,15 +51,21 @@ export function App() {
   useEffect(() => {
     let cancelled = false
     loadDesktopJobs().then((desktopJobs) => {
-      if (!cancelled && desktopJobs && desktopJobs.length) {
-        const normalizedJobs = desktopJobs.map(normalizeJobFlow)
-        setJobs(normalizedJobs)
-        saveJobs(normalizedJobs)
-        normalizedJobs.forEach((job) => { void persistDesktopJob(job) })
-      }
+      // 桌面端以 SQLite 为唯一数据源：即使返回空数组也要覆盖，否则会停留在旧数据或示例数据上。
+      if (cancelled || !desktopJobs) return
+      const normalizedJobs = desktopJobs.map(normalizeJobFlow)
+      setJobs(normalizedJobs)
+      saveJobs(normalizedJobs)
+      normalizedJobs.forEach((job) => { void persistDesktopJob(job) })
     })
     loadDesktopDeletedJobs().then((desktopJobs) => {
       if (!cancelled && desktopJobs) setDeletedJobs(desktopJobs)
+    })
+    loadDesktopProcessEvents().then((desktopEvents) => {
+      if (!cancelled && desktopEvents) {
+        setEvents(desktopEvents)
+        saveProcessEvents(desktopEvents)
+      }
     })
     return () => { cancelled = true }
   }, [])
@@ -88,21 +94,26 @@ export function App() {
     .filter((job) => statusFilter === '全部' || job.status === statusFilter)
     .sort((a, b) => sortBy === 'deadline' ? (a.deadlineAt || '9999-99-99').localeCompare(b.deadlineAt || '9999-99-99') : b.updatedAt.localeCompare(a.updatedAt))
 
-  function updateJobs(next: JobPosition[]) {
+  // changedIds 必须由调用方显式给出：靠日期去"猜"改动对象会在同一天改过多个岗位时写错行。
+  function updateJobs(next: JobPosition[], changedIds: string[] = []) {
     setJobs(next)
     saveJobs(next)
-    const changedJob = next.find((job) => job.updatedAt === today)
-    if (changedJob) void persistDesktopJob(changedJob)
+    changedIds.forEach((id) => {
+      const changedJob = next.find((job) => job.id === id)
+      if (changedJob) void persistDesktopJob(changedJob)
+    })
   }
 
   function updateStatus(jobId: string, status: JobStatus) {
     const current = jobs.find((job) => job.id === jobId)
     if (!current || current.status === status) return
     const nextJobs = jobs.map((job) => job.id === jobId ? { ...job, status, updatedAt: today, appliedAt: status === '已投递' && !job.appliedAt ? today : job.appliedAt } : job)
-    const nextEvents = [...events, { id: crypto.randomUUID(), jobId, fromStatus: current.status, toStatus: status, note: '', eventTime: today }]
-    updateJobs(nextJobs)
+    const nextEvent = { id: crypto.randomUUID(), jobId, fromStatus: current.status, toStatus: status, note: '', eventTime: today }
+    const nextEvents = [...events, nextEvent]
+    updateJobs(nextJobs, [jobId])
     setEvents(nextEvents)
     saveProcessEvents(nextEvents)
+    void persistDesktopProcessEvent(nextEvent)
   }
 
   function handleDrop(status: JobStatus) {
@@ -114,14 +125,14 @@ export function App() {
     event.preventDefault()
     const form = event.currentTarget
     const job = { ...makeJob(form), flowId: String(new FormData(form).get('flowId') || flowTemplates[0]?.id) }
-    updateJobs([job, ...jobs])
+    updateJobs([job, ...jobs], [job.id])
     setShowAdd(false)
     setSelectedId(job.id)
   }
 
   function updateSelected(patch: Partial<JobPosition>) {
     if (!selectedJob) return
-    updateJobs(jobs.map((job) => job.id === selectedJob.id ? { ...job, ...patch, updatedAt: today } : job))
+    updateJobs(jobs.map((job) => job.id === selectedJob.id ? { ...job, ...patch, updatedAt: today } : job), [selectedJob.id])
   }
 
   function deleteJob(job: JobPosition) {
@@ -133,7 +144,9 @@ export function App() {
     setDeletedJobs(nextDeletedJobs)
     saveJobs(nextJobs)
     saveDeletedJobs(nextDeletedJobs)
-    void deleteDesktopJob(job.id)
+    void deleteDesktopJob(job.id).then((ok) => {
+      if (isDesktopRuntime() && !ok) window.alert('岗位已从界面移除，但没能同步到本地数据库，重启后会重新出现。请检查程序目录是否可写。')
+    })
     setSelectedId(null)
   }
 
@@ -145,7 +158,7 @@ export function App() {
     setJobs(nextJobs)
     saveDeletedJobs(nextDeletedJobs)
     saveJobs(nextJobs)
-    void restoreDesktopJob(job.id)
+    void restoreDesktopJob(job.id).then(() => persistDesktopJob(restoredJob))
   }
 
   function updateFlowTemplates(next: FlowTemplate[]) {
@@ -165,13 +178,14 @@ export function App() {
     const flow = flowTemplates.find((item) => item.id === flowId)
     if (!flow || !window.confirm(`确定删除“${flow.name}”吗？其中的岗位会转移到其他流程。`)) return
     const replacement = flowTemplates.find((item) => item.id !== flowId)
+    const movedIds = jobs.filter((job) => (job.flowId || 'flow-general') === flowId).map((job) => job.id)
     const nextJobs = jobs.map((job) => (job.flowId || 'flow-general') === flowId ? { ...job, flowId: replacement?.id, updatedAt: today } : job)
-    updateJobs(nextJobs)
+    updateJobs(nextJobs, movedIds)
     updateFlowTemplates(flowTemplates.filter((item) => item.id !== flowId))
   }
 
   function assignJobFlow(jobId: string, flowId: string) {
-    updateJobs(jobs.map((job) => job.id === jobId ? { ...job, flowId, updatedAt: today } : job))
+    updateJobs(jobs.map((job) => job.id === jobId ? { ...job, flowId, updatedAt: today } : job), [jobId])
   }
 
   function updateTasks(next: Task[]) { setTasks(next); saveTasks(next) }
@@ -181,6 +195,11 @@ export function App() {
   function importData(data: { jobs: JobPosition[]; deletedJobs: JobPosition[]; tasks: Task[]; events: CalendarEvent[]; notes: Note[]; flows: FlowTemplate[] }) {
     setJobs(data.jobs); setDeletedJobs(data.deletedJobs); setTasks(data.tasks); setCalendarEvents(data.events); setNotes(data.notes); setFlowTemplates(data.flows)
     saveJobs(data.jobs); saveDeletedJobs(data.deletedJobs); saveTasks(data.tasks); saveCalendarEvents(data.events); saveNotes(data.notes); saveFlowTemplates(data.flows)
+    // 桌面端必须同步写回 SQLite，否则导入只停留在内存里，重启后回到旧数据。
+    const restored = [...data.jobs, ...data.deletedJobs]
+    void persistDesktopJobs(restored).then((saved) => {
+      if (isDesktopRuntime() && restored.length > 0 && saved === 0) window.alert('导入的数据未能写入本地数据库，请检查程序目录是否可写。')
+    })
   }
 
   const navItems = [
@@ -218,7 +237,9 @@ function JobCard({ job, onClick, onDragStart }: { job: JobPosition; onClick: () 
 }
 
 function DetailDrawer({ job, events, statuses, onClose, onUpdate, onStatusChange, onDelete }: { job: JobPosition; events: ProcessEvent[]; statuses: string[]; onClose: () => void; onUpdate: (patch: Partial<JobPosition>) => void; onStatusChange: (status: JobStatus) => void; onDelete: () => void }) {
-  return <div className="drawer-backdrop" onClick={onClose}><aside className="detail-drawer" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span>岗位详情</span><button className="icon-button" onClick={onClose}><X size={18} /></button></div><div className="drawer-body"><div className="detail-title"><div className="large-avatar">{job.company.slice(0, 1)}</div><div><span>{job.company}</span><h2>{job.title}</h2><p>{job.city || '地点待定'} · {job.employmentType} · {job.direction}</p></div></div><div className="detail-status"><label>当前阶段</label><select value={job.status} onChange={(event) => onStatusChange(event.target.value as JobStatus)}>{STATUSES.map((status) => <option key={status}>{status}</option>)}</select></div><div className="detail-grid"><DetailField label="优先级"><select value={job.priority} onChange={(event) => onUpdate({ priority: event.target.value as Priority })}><option>高</option><option>中</option><option>低</option></select></DetailField><DetailField label="投递日期"><input type="date" value={job.appliedAt || ''} onChange={(event) => onUpdate({ appliedAt: event.target.value })} /></DetailField><DetailField label="截止日期"><input type="date" value={job.deadlineAt || ''} onChange={(event) => onUpdate({ deadlineAt: event.target.value })} /></DetailField><DetailField label="下一步截止"><input type="date" value={job.nextActionDeadline || ''} onChange={(event) => onUpdate({ nextActionDeadline: event.target.value })} /></DetailField></div><div className="detail-section"><div className="section-title"><h3>下一步行动</h3><span>行动先于焦虑</span></div><input className="wide-input" value={job.nextAction} onChange={(event) => onUpdate({ nextAction: event.target.value })} placeholder="例如：准备笔试、跟进 HR" /></div><div className="detail-section"><div className="section-title"><h3>相关链接</h3><span>{job.jobUrl && job.processUrl ? '信息完整' : '还有信息待补充'}</span></div><LinkRow label="岗位链接" url={job.jobUrl} onChange={(url) => onUpdate({ jobUrl: url })} /><LinkRow label="流程链接" url={job.processUrl} onChange={(url) => onUpdate({ processUrl: url })} /></div><div className="detail-section"><div className="section-title"><h3>流程历史</h3><span>{events.length} 次变更</span></div><div className="timeline">{events.length ? events.slice().reverse().map((event) => <div className="timeline-item" key={event.id}><div className="timeline-dot" /><div><strong>{event.fromStatus || '新建'} → {event.toStatus}</strong><time>{event.eventTime}</time></div></div>) : <div className="empty-timeline">状态变更会记录在这里</div>}</div></div><div className="detail-section"><div className="section-title"><h3>JD 摘要</h3><span>Markdown 备忘录将在 V0.2 加入</span></div><textarea className="jd-input" value={job.jdContent} onChange={(event) => onUpdate({ jdContent: event.target.value })} placeholder="粘贴岗位 JD，方便后续搜索和准备..." /></div></div><div className="drawer-footer"><button className="secondary-button"><ExternalLink size={16} /> 打开岗位链接</button><button className="primary-button" onClick={onClose}><Check size={16} /> 完成编辑</button></div></aside></div>
+  // 必须渲染岗位所属流程的阶段；用全局默认阶段会让"技术一面"这类阶段无处可选，改完卡片就从看板消失。
+  const stageOptions = statuses.includes(job.status) ? statuses : [...statuses, job.status]
+  return <div className="drawer-backdrop" onClick={onClose}><aside className="detail-drawer" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span>岗位详情</span><button className="icon-button" onClick={onClose}><X size={18} /></button></div><div className="drawer-body"><div className="detail-title"><div className="large-avatar">{job.company.slice(0, 1)}</div><div><span>{job.company}</span><h2>{job.title}</h2><p>{job.city || '地点待定'} · {job.employmentType} · {job.direction}</p></div></div><div className="detail-status"><label>当前阶段</label><select value={job.status} onChange={(event) => onStatusChange(event.target.value as JobStatus)}>{stageOptions.map((status) => <option key={status}>{status}</option>)}</select></div><div className="detail-grid"><DetailField label="优先级"><select value={job.priority} onChange={(event) => onUpdate({ priority: event.target.value as Priority })}><option>高</option><option>中</option><option>低</option></select></DetailField><DetailField label="投递日期"><input type="date" value={job.appliedAt || ''} onChange={(event) => onUpdate({ appliedAt: event.target.value })} /></DetailField><DetailField label="截止日期"><input type="date" value={job.deadlineAt || ''} onChange={(event) => onUpdate({ deadlineAt: event.target.value })} /></DetailField><DetailField label="下一步截止"><input type="date" value={job.nextActionDeadline || ''} onChange={(event) => onUpdate({ nextActionDeadline: event.target.value })} /></DetailField></div><div className="detail-section"><div className="section-title"><h3>下一步行动</h3><span>行动先于焦虑</span></div><input className="wide-input" value={job.nextAction} onChange={(event) => onUpdate({ nextAction: event.target.value })} placeholder="例如：准备笔试、跟进 HR" /></div><div className="detail-section"><div className="section-title"><h3>相关链接</h3><span>{job.jobUrl && job.processUrl ? '信息完整' : '还有信息待补充'}</span></div><LinkRow label="岗位链接" url={job.jobUrl} onChange={(url) => onUpdate({ jobUrl: url })} /><LinkRow label="流程链接" url={job.processUrl} onChange={(url) => onUpdate({ processUrl: url })} /></div><div className="detail-section"><div className="section-title"><h3>流程历史</h3><span>{events.length} 次变更</span></div><div className="timeline">{events.length ? events.slice().reverse().map((event) => <div className="timeline-item" key={event.id}><div className="timeline-dot" /><div><strong>{event.fromStatus || '新建'} → {event.toStatus}</strong><time>{event.eventTime}</time></div></div>) : <div className="empty-timeline">状态变更会记录在这里</div>}</div></div><div className="detail-section"><div className="section-title"><h3>JD 摘要</h3><span>Markdown 备忘录将在 V0.2 加入</span></div><textarea className="jd-input" value={job.jdContent} onChange={(event) => onUpdate({ jdContent: event.target.value })} placeholder="粘贴岗位 JD，方便后续搜索和准备..." /></div></div><div className="drawer-footer"><button className="secondary-button"><ExternalLink size={16} /> 打开岗位链接</button><button className="primary-button" onClick={onClose}><Check size={16} /> 完成编辑</button></div></aside></div>
 }
 
 function FilterPanel({ priority, direction, status, sortBy, directions, statuses, onPriorityChange, onDirectionChange, onStatusChange, onSortChange }: { priority: Priority | '全部'; direction: string; status: string; sortBy: 'updated' | 'deadline'; directions: string[]; statuses: string[]; onPriorityChange: (value: Priority | '全部') => void; onDirectionChange: (value: string) => void; onStatusChange: (value: string) => void; onSortChange: (value: 'updated' | 'deadline') => void }) {
