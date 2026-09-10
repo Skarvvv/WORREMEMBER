@@ -93,3 +93,9 @@ html, body, #root { height: 100%; overflow: hidden; }
 .board-empty strong { display: block; font-size: 13px; font-weight: 500; color: var(--ink); }
 .board-empty span { font-size: 11px; }
 .board-empty button { margin-left: auto; }
+
+.trash-toolbar { display: flex; align-items: center; gap: 14px; padding: 4px 0 16px; max-width: 760px; }
+.trash-toolbar span { color: var(--muted); font-size: 11px; }
+.trash-toolbar button { margin-left: auto; }
+.btn-danger { color: #a32d2d; border-color: #e6c4c4; }
+.btn-danger:hover { border-color: #c98a8a; background: #fdf3f3; }

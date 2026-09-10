@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleAlert, ClipboardList, ExternalLink, FileText, LayoutDashboard, Pencil, Pin, Plus, RotateCcw, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
 import type { DragEvent, FormEvent, MouseEvent } from 'react'
-import { backupDesktopDatabase, deleteDesktopJob, downloadFile, isDesktopRuntime, loadCalendarEvents, loadDeletedJobs, loadDesktopDeletedJobs, loadDesktopJobs, loadDesktopProcessEvents, loadFlowTemplates, loadJobs, loadNotes, loadProcessEvents, loadTasks, persistDesktopJob, persistDesktopJobs, persistDesktopProcessEvent, restoreDesktopJob, saveCalendarEvents, saveDeletedJobs, saveFlowTemplates, saveJobs, saveNotes, saveProcessEvents, saveTasks } from './storage'
+import { backupDesktopDatabase, deleteDesktopJob, downloadFile, isDesktopRuntime, loadCalendarEvents, loadDeletedJobs, loadDesktopDeletedJobs, loadDesktopJobs, loadDesktopProcessEvents, loadFlowTemplates, loadJobs, loadNotes, loadProcessEvents, loadTasks, persistDesktopJob, persistDesktopJobs, persistDesktopProcessEvent, purgeDesktopDeletedJobs, purgeDesktopJob, restoreDesktopJob, saveCalendarEvents, saveDeletedJobs, saveFlowTemplates, saveJobs, saveNotes, saveProcessEvents, saveTasks } from './storage'
 import { getStatusMeta, JobStatus, Priority, STATUSES, type CalendarEvent, type FlowTemplate, type JobPosition, type Note, type ProcessEvent, type Task } from './types'
 
 const today = new Date().toISOString().slice(0, 10)
@@ -161,6 +161,26 @@ export function App() {
     void restoreDesktopJob(job.id).then(() => persistDesktopJob(restoredJob))
   }
 
+  function purgeJob(job: JobPosition) {
+    if (!window.confirm(`彻底删除「${job.company} · ${job.title}」？该岗位将被永久移除，无法恢复。`)) return
+    const nextDeletedJobs = deletedJobs.filter((item) => item.id !== job.id)
+    setDeletedJobs(nextDeletedJobs)
+    saveDeletedJobs(nextDeletedJobs)
+    void purgeDesktopJob(job.id).then((ok) => {
+      if (isDesktopRuntime() && !ok) window.alert('彻底删除没能同步到本地数据库，请检查程序目录是否可写。')
+    })
+  }
+
+  function purgeAllDeleted() {
+    if (deletedJobs.length === 0) return
+    if (!window.confirm(`确定清空回收站吗？${deletedJobs.length} 个岗位将被永久删除，无法恢复。`)) return
+    setDeletedJobs([])
+    saveDeletedJobs([])
+    void purgeDesktopDeletedJobs().then((ok) => {
+      if (isDesktopRuntime() && !ok) window.alert('清空回收站没能同步到本地数据库，请检查程序目录是否可写。')
+    })
+  }
+
   function updateFlowTemplates(next: FlowTemplate[]) {
     setFlowTemplates(next)
     saveFlowTemplates(next)
@@ -222,7 +242,7 @@ export function App() {
         <header className="topbar"><div><div className="breadcrumb">秋招作战台 <span>/</span> {activeNav}</div><h1>{activeNav === '看板' ? '投递看板' : activeNav}</h1></div><div className="top-actions"><div className="search-box"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索公司、岗位或行动" /><kbd>⌘ K</kbd></div><button className={showFilters ? 'icon-button active' : 'icon-button'} title="筛选" onClick={() => setShowFilters((visible) => !visible)}><SlidersHorizontal size={18} /></button><button className="primary-button" onClick={() => setShowAdd(true)}><Plus size={18} /> 新增岗位</button></div></header>
           {showFilters && <FilterPanel priority={priorityFilter} direction={directionFilter} status={statusFilter} sortBy={sortBy} directions={directions} statuses={activeFlow?.statuses || STATUSES} onPriorityChange={setPriorityFilter} onDirectionChange={setDirectionFilter} onStatusChange={setStatusFilter} onSortChange={setSortBy} />}
         <section className="summary-row"><div className="summary-intro"><Sparkles size={18} /><span>今天是 {today.replaceAll('-', '.')}，继续保持推进。</span></div><div className="summary-metrics"><span><b>{activeJobs.length}</b> 个进行中</span><span className={urgentJobs.length ? 'metric-alert' : ''}><b>{urgentJobs.length}</b> 个待处理</span><span><b>{jobs.filter((job) => job.status === 'Offer').length}</b> 个 Offer</span></div></section>
-        {activeNav === '总览' ? <OverviewView jobs={jobs} tasks={tasks} events={calendarEvents} notes={notes} onCompleteTask={(task) => updateTasks(tasks.map((item) => item.id === task.id ? { ...item, completedAt: today, updatedAt: today } : item))} /> : activeNav === '日程' ? <CalendarView events={calendarEvents} jobs={jobs} onChange={updateCalendarEvents} /> : activeNav === '备忘录' ? <NotesView notes={notes} jobs={jobs} onChange={updateNotes} /> : activeNav === '回收站' ? <TrashView jobs={deletedJobs} onRestore={restoreJob} /> : activeNav === '设置' ? <FlowSettings flows={flowTemplates} onChange={updateFlowTemplates} onCreate={createFlow} onDelete={deleteFlow} onAssign={assignJobFlow} onImport={importData} jobs={jobs} deletedJobs={deletedJobs} tasks={tasks} events={calendarEvents} notes={notes} /> : <>{jobs.length === 0 && <BoardEmpty onCreate={() => setShowAdd(true)} />}<div className="board-toolbar"><div className="view-tabs">{flowTemplates.map((flow) => <button key={flow.id} className={activeFlow?.id === flow.id ? 'view-tab active' : 'view-tab'} onClick={() => setActiveFlowId(flow.id)}>{flow.name} <span>{jobs.filter((job) => (job.flowId || 'flow-general') === flow.id).length}</span></button>)}<button className="view-tab">高优先级 <span>{flowJobs.filter((job) => job.priority === '高').length}</span></button><button className="view-tab">本周更新</button></div><button className="sort-button">最近更新 <ChevronDown size={15} /></button></div><section className="board">{(activeFlow?.statuses || STATUSES).map((status) => <div className="column" key={status} onDragOver={(event) => event.preventDefault()} onDrop={() => handleDrop(status)}><div className="column-head"><div className={`status-dot ${getStatusMeta(status).tone}`} /><h2>{status}</h2><span className="column-count">{flowJobs.filter((job) => job.status === status).length}</span><button className="column-more">···</button></div><div className="column-cards">{flowJobs.filter((job) => job.status === status).map((job) => <JobCard key={job.id} job={job} onClick={() => setSelectedId(job.id)} onDragStart={() => setDraggedId(job.id)} />)}<button className="add-card" onClick={() => setShowAdd(true)}><Plus size={15} /> 添加岗位</button></div></div>)}</section></>}
+        {activeNav === '总览' ? <OverviewView jobs={jobs} tasks={tasks} events={calendarEvents} notes={notes} onCompleteTask={(task) => updateTasks(tasks.map((item) => item.id === task.id ? { ...item, completedAt: today, updatedAt: today } : item))} /> : activeNav === '日程' ? <CalendarView events={calendarEvents} jobs={jobs} onChange={updateCalendarEvents} /> : activeNav === '备忘录' ? <NotesView notes={notes} jobs={jobs} onChange={updateNotes} /> : activeNav === '回收站' ? <TrashView jobs={deletedJobs} onRestore={restoreJob} onPurge={purgeJob} onPurgeAll={purgeAllDeleted} /> : activeNav === '设置' ? <FlowSettings flows={flowTemplates} onChange={updateFlowTemplates} onCreate={createFlow} onDelete={deleteFlow} onAssign={assignJobFlow} onImport={importData} jobs={jobs} deletedJobs={deletedJobs} tasks={tasks} events={calendarEvents} notes={notes} /> : <>{jobs.length === 0 && <BoardEmpty onCreate={() => setShowAdd(true)} />}<div className="board-toolbar"><div className="view-tabs">{flowTemplates.map((flow) => <button key={flow.id} className={activeFlow?.id === flow.id ? 'view-tab active' : 'view-tab'} onClick={() => setActiveFlowId(flow.id)}>{flow.name} <span>{jobs.filter((job) => (job.flowId || 'flow-general') === flow.id).length}</span></button>)}<button className="view-tab">高优先级 <span>{flowJobs.filter((job) => job.priority === '高').length}</span></button><button className="view-tab">本周更新</button></div><button className="sort-button">最近更新 <ChevronDown size={15} /></button></div><section className="board">{(activeFlow?.statuses || STATUSES).map((status) => <div className="column" key={status} onDragOver={(event) => event.preventDefault()} onDrop={() => handleDrop(status)}><div className="column-head"><div className={`status-dot ${getStatusMeta(status).tone}`} /><h2>{status}</h2><span className="column-count">{flowJobs.filter((job) => job.status === status).length}</span><button className="column-more">···</button></div><div className="column-cards">{flowJobs.filter((job) => job.status === status).map((job) => <JobCard key={job.id} job={job} onClick={() => setSelectedId(job.id)} onDragStart={() => setDraggedId(job.id)} />)}<button className="add-card" onClick={() => setShowAdd(true)}><Plus size={15} /> 添加岗位</button></div></div>)}</section></>}
       </main>
       {selectedJob && <DetailDrawer job={selectedJob} events={events.filter((event) => event.jobId === selectedJob.id)} statuses={selectedFlow?.statuses || STATUSES} onClose={() => setSelectedId(null)} onUpdate={updateSelected} onStatusChange={(status) => updateStatus(selectedJob.id, status)} onDelete={() => deleteJob(selectedJob)} />}
       {selectedJob && <TagsQuickEditor tags={selectedJob.tags || []} onChange={(tags) => updateSelected({ tags })} />}
@@ -455,8 +475,21 @@ function FlowSettings({ flows, onChange, onCreate, onDelete, onAssign, onImport,
   return <section className="settings-view"><div className="settings-heading"><span className="eyebrow">流程管理</span><h2>流程模板</h2><p>为研发、产品、运营、设计等不同方向维护独立的招聘流程。</p></div><div className="data-tools"><div><strong>流程类别</strong><span>新增类别后，可以为岗位分配不同的招聘流程。</span></div><div className="data-tool-actions"><button className="secondary-button" onClick={onCreate}><Plus size={15} /> 新增流程类别</button></div></div><div className="flow-settings-list">{flows.map((flow) => <article className="flow-setting" key={flow.id}><div className="flow-setting-title"><input className="flow-name-input" value={flow.name} onChange={(event) => updateFlow(flow.id, { name: event.target.value })} /><button className="icon-button danger-button" onClick={() => onDelete(flow.id)} title="删除流程类别"><Trash2 size={15} /></button></div><label className="flow-assignment"><span>岗位归属</span><select value="" onChange={(event) => event.target.value && onAssign(event.target.value, flow.id)}><option value="">选择岗位加入此流程</option>{jobs.filter((job) => (job.flowId || 'flow-general') !== flow.id).map((job) => <option key={job.id} value={job.id}>{job.company} · {job.title}</option>)}</select></label><div className="flow-stage-list">{flow.statuses.map((status, index) => <div className="flow-stage" key={`${flow.id}-${index}`}><span>{index + 1}</span><input value={status} onChange={(event) => updateStage(flow, index, event.target.value)} /><button className="icon-button" onClick={() => removeStage(flow, index)} title="删除阶段"><X size={15} /></button></div>)}</div><button className="secondary-button" onClick={() => addStage(flow)}><Plus size={15} /> 添加阶段</button></article>)}</div></section>
 }
 
-function TrashView({ jobs, onRestore }: { jobs: JobPosition[]; onRestore: (job: JobPosition) => void }) {
-  return <section className="trash-view"><div className="view-count">{jobs.length} 个岗位</div>{jobs.length === 0 ? <div className="empty-state"><Trash2 size={24} /><p>回收站是空的</p></div> : <div className="trash-list">{jobs.map((job) => <article className="trash-item" key={job.id}><div><strong>{job.title}</strong><span>{job.company} · 原阶段：{job.status}</span></div><button className="secondary-button" onClick={() => onRestore(job)}><RotateCcw size={15} /> 恢复</button></article>)}</div>}</section>
+function TrashView({ jobs, onRestore, onPurge, onPurgeAll }: { jobs: JobPosition[]; onRestore: (job: JobPosition) => void; onPurge: (job: JobPosition) => void; onPurgeAll: () => void }) {
+  return (
+    <section className="trash-view">
+      <div className="view-count">{jobs.length} 个岗位</div>
+      {jobs.length === 0 ? <div className="empty-state"><Trash2 size={24} /><p>回收站是空的</p></div> : (
+        <>
+          <div className="trash-toolbar">
+            <span>回收站里的岗位不会被搜索和统计，恢复后回到原流程。</span>
+            <button className="secondary-button btn-danger" onClick={onPurgeAll}><Trash2 size={15} /> 清空回收站</button>
+          </div>
+          <div className="trash-list">{jobs.map((job) => <article className="trash-item" key={job.id}><div><strong>{job.title}</strong><span>{job.company} · 原阶段：{job.status}</span></div><div className="row-actions"><button className="secondary-button" onClick={() => onRestore(job)}><RotateCcw size={15} /> 恢复</button><button className="secondary-button btn-danger" onClick={() => onPurge(job)} title="彻底删除"><Trash2 size={15} /> 彻底删除</button></div></article>)}</div>
+        </>
+      )}
+    </section>
+  )
 }
 
 function DetailField({ label, children }: { label: string; children: React.ReactNode }) { return <label className="detail-field"><span>{label}</span>{children}</label> }

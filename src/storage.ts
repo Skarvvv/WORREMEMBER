@@ -158,6 +158,26 @@ export async function persistDesktopJobs(jobs: JobPosition[]): Promise<number> {
   return results.filter(Boolean).length
 }
 
+export async function purgeDesktopJob(jobId: string): Promise<boolean> {
+  try {
+    await invoke('purge_job', { jobId })
+    return true
+  } catch (error) {
+    console.error('[WORREMEMBER] 岗位彻底删除失败', jobId, error)
+    return false
+  }
+}
+
+export async function purgeDesktopDeletedJobs(): Promise<boolean> {
+  try {
+    await invoke('purge_deleted_jobs')
+    return true
+  } catch (error) {
+    console.error('[WORREMEMBER] 清空回收站失败', error)
+    return false
+  }
+}
+
 export async function loadDesktopProcessEvents(): Promise<ProcessEvent[] | null> {
   try {
     const events = await invoke<Record<string, unknown>[]>('list_process_events')

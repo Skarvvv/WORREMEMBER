@@ -153,6 +153,33 @@ fn restore_job(database: State<'_, Database>, job_id: String) -> Result<(), Stri
 }
 
 #[tauri::command]
+fn purge_job(database: State<'_, Database>, job_id: String) -> Result<(), String> {
+    let connection = database.0.lock().map_err(|_| "数据库锁定失败".to_string())?;
+    connection
+        .execute("DELETE FROM process_events WHERE job_id = ?1", params![job_id])
+        .map_err(|error| error.to_string())?;
+    connection
+        .execute("DELETE FROM jobs WHERE id = ?1", params![job_id])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn purge_deleted_jobs(database: State<'_, Database>) -> Result<usize, String> {
+    let connection = database.0.lock().map_err(|_| "数据库锁定失败".to_string())?;
+    connection
+        .execute(
+            "DELETE FROM process_events WHERE job_id IN (SELECT id FROM jobs WHERE deleted_at IS NOT NULL)",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+    let removed = connection
+        .execute("DELETE FROM jobs WHERE deleted_at IS NOT NULL", [])
+        .map_err(|error| error.to_string())?;
+    Ok(removed)
+}
+
+#[tauri::command]
 fn list_process_events(database: State<'_, Database>) -> Result<Vec<ProcessEventRecord>, String> {
     let connection = database.0.lock().map_err(|_| "数据库锁定失败".to_string())?;
     let mut statement = connection
@@ -240,7 +267,7 @@ pub fn run() {
             startup_log("setup:complete");
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_jobs, list_deleted_jobs, upsert_job, delete_job, restore_job, list_process_events, upsert_process_event, backup_database])
+        .invoke_handler(tauri::generate_handler![list_jobs, list_deleted_jobs, upsert_job, delete_job, restore_job, purge_job, purge_deleted_jobs, list_process_events, upsert_process_event, backup_database])
         .run(tauri::generate_context!())
         .unwrap_or_else(|error| {
             startup_log(&format!("run:error={error}"));
